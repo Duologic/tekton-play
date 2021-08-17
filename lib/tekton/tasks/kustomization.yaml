@@ -3,3 +3,4 @@ kind: Kustomization
 resources:
 - https://raw.githubusercontent.com/tektoncd/catalog/main/task/git-clone/0.4/git-clone.yaml
 - https://raw.githubusercontent.com/tektoncd/catalog/main/task/git-cli/0.2/git-cli.yaml
+- https://raw.githubusercontent.com/tektoncd/catalog/main/task/kubeval/0.1/kubeval.yaml

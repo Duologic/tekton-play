@@ -50,7 +50,7 @@ local tk = import 'tanka-util/main.libsonnet';
           runAfter=['git-clone'],
         )
         + tekton.core.v1beta1.pipeline.addTask(
-          'tanka',
+          'tanka-export',
           'tk',
           params=[{
             name: 'ARGS',
@@ -71,9 +71,30 @@ local tk = import 'tanka-util/main.libsonnet';
           'shell',
           'sleep',
           workspaces=[{ name: 'ws', workspace: 'ws' }],
+        )
+        + tekton.core.v1beta1.pipeline.addTask(
+          'kubeval',
+          'kubeval',
+          workspaces=[{ name: 'source', workspace: 'ws' }],
+          params=[
+            {
+              name: 'files',
+              value: 'output/',
+            },
+            {
+              name: 'args',
+              value: [
+                '--force-color',
+                '--ignore-missing-schemas',
+                '--strict',
+              ],
+            },
+          ],
+          runAfter=['tanka-export'],
         ),
 
       git_clone_task: tekton.tasks.task_git_clone,
+      kubeval_task: tekton.tasks.task_kubeval,
 
       sleep_task:
         tekton.core.v1beta1.task.new('sleep', [
@@ -98,7 +119,7 @@ local tk = import 'tanka-util/main.libsonnet';
 
       jb_install_task:
         tekton.core.v1beta1.task.new('jb-install', [
-          k.core.v1.container.new('jb-install', 'grafana/tanka:0.17.2')
+          k.core.v1.container.new('jb-install', 'grafana/tanka:0.17.3')
           + k.core.v1.container.withCommand('jb')
           + k.core.v1.container.withArgs(['install'])
           + k.core.v1.container.withWorkingDir('$(workspaces.jb_root.path)'),
@@ -111,7 +132,7 @@ local tk = import 'tanka-util/main.libsonnet';
 
       tanka_task:
         tekton.core.v1beta1.task.new('tk', [
-          k.core.v1.container.new('tanka', 'grafana/tanka:0.17.2')
+          k.core.v1.container.new('tanka', 'grafana/tanka:0.17.3')
           + k.core.v1.container.withArgs(['$(params.ARGS)'])
           + k.core.v1.container.withWorkingDir('$(workspaces.tk_root.path)'),
         ])

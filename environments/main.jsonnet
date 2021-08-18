@@ -12,6 +12,7 @@ local tk = import 'tanka-util/main.libsonnet';
 {
   tekton:
     tk.environment.new('tekton', 'tekton-pipelines', server)
+    + tk.environment.withInjectLabels()
     + tk.environment.withData({
       tekton: tekton.installation {
         config_map_config_artifact_pvc+: {
@@ -25,12 +26,18 @@ local tk = import 'tanka-util/main.libsonnet';
 
   default:
     tk.environment.new('default', 'default', server)
+    + tk.environment.withInjectLabels()
     + tk.environment.withData({
       storageclasses: storageclasses('gke'),
       ns: [
-        k.core.v1.namespace.new('tekton-tutorial'),
+        k.core.v1.namespace.new('tekton-pipelines'),
       ],
+    }),
 
+  pipelines:
+    tk.environment.new('pipelines', 'default', server)
+    + tk.environment.withInjectLabels()
+    + tk.environment.withData({
       local pipeline = tekton.core.v1beta1.pipeline,
       local workspace = 'ws',
       tanka_pipeline:

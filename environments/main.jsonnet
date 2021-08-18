@@ -2,6 +2,8 @@ local kubeconfig = import 'kubeconfig.libsonnet';
 local server = kubeconfig[0].clusters[0].cluster.server;
 
 local tekton = import 'tekton/main.libsonnet';
+local tkn_tasks = import 'tkn-tasks/tanka.libsonnet';
+
 local storageclasses = import 'storageclass/classes.libsonnet';
 
 local k = import 'k.libsonnet';
@@ -29,189 +31,72 @@ local tk = import 'tanka-util/main.libsonnet';
         k.core.v1.namespace.new('tekton-tutorial'),
       ],
 
+      local pipeline = tekton.core.v1beta1.pipeline,
+      local workspace = 'ws',
       tanka_pipeline:
-        tekton.core.v1beta1.pipeline.new('tanka-pipeline')
-        + tekton.core.v1beta1.pipeline.withWorkspace('ws')
-        + tekton.core.v1beta1.pipeline.addTask(
+        pipeline.new('tanka-pipeline')
+        + pipeline.withWorkspace(workspace)
+        + pipeline.addTask(
           'git-clone',
           'git-clone',
-          workspaces=[{ name: 'output', workspace: 'ws' }],
-          params=[
-            {
-              name: 'url',
-              value: 'https://github.com/Duologic/tekton-play.git',
-            },
-          ]
+          workspaces=[{
+            name: 'output',
+            workspace: workspace,
+            subpath: 'input',
+          }],
+          params=[{
+            name: 'url',
+            value: 'https://github.com/Duologic/tekton-play.git',
+          }]
         )
-        + tekton.core.v1beta1.pipeline.addTask(
+        + pipeline.addTask(
           'jb-install',
-          'jb-install',
-          workspaces=[{ name: 'jb_root', workspace: 'ws' }],
+          self.tasks.jb_install.metadata.name,
+          workspaces=[{
+            name: 'jb_root',
+            workspace: workspace,
+            subpath: 'input',
+          }],
           runAfter=['git-clone'],
         )
-        + tekton.core.v1beta1.pipeline.addTask(
+        + pipeline.addTask(
           'tanka-export',
-          'tk',
+          self.tasks.tanka_export.metadata.name,
+          runAfter=['jb-install'],
+          workspaces=[{
+            name: 'tk_root',
+            workspace: workspace,
+            subpath: 'input',
+          }, {
+            name: 'output',
+            workspace: workspace,
+            subpath: 'output',
+          }],
+        )
+        + pipeline.addTask(
+          'kubeval',
+          self.tasks.kubeval.metadata.name,
+          runAfter=['tanka-export'],
+          workspaces=[{
+            name: 'source',
+            workspace: workspace,
+            subpath: 'output',
+          }],
           params=[{
-            name: 'ARGS',
+            name: 'args',
             value: [
-              'export',
-              'output/',
-              'environments/',
-              '--recursive',
-              '--merge',
-              '--parallel=8',
-              "--format='{{ if .metadata.namespace }}{{.metadata.namespace}}/{{ else }}_cluster/{{ end }}{{.kind}}-{{.metadata.name}}'",
+              '--force-color',
+              '--ignore-missing-schemas',
+              '--strict',
             ],
           }],
-          workspaces=[{ name: 'tk_root', workspace: 'ws' }],
-          runAfter=['jb-install'],
-        )
-        + tekton.core.v1beta1.pipeline.addTask(
-          'shell',
-          'sleep',
-          workspaces=[{ name: 'ws', workspace: 'ws' }],
-        )
-        + tekton.core.v1beta1.pipeline.addTask(
-          'kubeval',
-          'kubeval',
-          workspaces=[{ name: 'source', workspace: 'ws' }],
-          params=[
-            {
-              name: 'files',
-              value: 'output/',
-            },
-            {
-              name: 'args',
-              value: [
-                '--force-color',
-                '--ignore-missing-schemas',
-                '--strict',
-              ],
-            },
-          ],
-          runAfter=['tanka-export'],
         ),
 
-      git_clone_task: tekton.tasks.task_git_clone,
-      kubeval_task: tekton.tasks.task_kubeval,
-
-      sleep_task:
-        tekton.core.v1beta1.task.new('sleep', [
-          k.core.v1.container.new('sleep', 'alpine:3.14')
-          + k.core.v1.container.withCommand('sleep')
-          + k.core.v1.container.withArgs(['$(params.TIME_SECONDS)']),
-        ])
-        + tekton.core.v1beta1.task.withDescription(
-          'Task that sleeps for a while to inspect the pipeline/workspace.'
-        )
-        + tekton.core.v1beta1.task.withParams([{
-          name: 'TIME_SECONDS',
-          type: 'array',
-          description: 'sleep for a while',
-          default: ['600'],
-        }])
-        + tekton.core.v1beta1.task.withWorkspaces([{
-          name: 'ws',
-          optional: true,
-          description: 'Gain access to a workspace.',
-        }]),
-
-      jb_install_task:
-        tekton.core.v1beta1.task.new('jb-install', [
-          k.core.v1.container.new('jb-install', 'grafana/tanka:0.17.3')
-          + k.core.v1.container.withCommand('jb')
-          + k.core.v1.container.withArgs(['install'])
-          + k.core.v1.container.withWorkingDir('$(workspaces.jb_root.path)'),
-        ])
-        + tekton.core.v1beta1.task.withWorkspaces([{
-          name: 'jb_root',
-          optional: true,
-          description: 'Include workspace with Jsonnet files.',
-        }]),
-
-      tanka_task:
-        tekton.core.v1beta1.task.new('tk', [
-          k.core.v1.container.new('tanka', 'grafana/tanka:0.17.3')
-          + k.core.v1.container.withArgs(['$(params.ARGS)'])
-          + k.core.v1.container.withWorkingDir('$(workspaces.tk_root.path)'),
-        ])
-        + tekton.core.v1beta1.task.withParams([{
-          name: 'ARGS',
-          type: 'array',
-          description: 'tk CLI args',
-          default: ['--version'],
-        }])
-        + tekton.core.v1beta1.task.withWorkspaces([{
-          name: 'tk_root',
-          optional: true,
-          description: 'Include workspace with Jsonnet files.',
-        }]),
-
-    }),
-
-  tutorial:
-    tk.environment.new('tutorial', 'tekton-tutorial', server)
-    + tk.environment.withData({
-      local ws_name = 'hello',
-      write_task:
-        tekton.core.v1beta1.task.new('write-hello', [
-          k.core.v1.container.new('write-hello', 'ubuntu')
-          + k.core.v1.container.withCommand('bash')
-          + k.core.v1.container.withArgs([
-            '-c',
-            'echo Hello World! > /workspace/' + ws_name + '/world && ls -laht /workspace/hello',
-          ]),
-        ])
-        + tekton.core.v1beta1.task.withWorkspace(ws_name),
-
-      read_task:
-        tekton.core.v1beta1.task.new('read-hello', [
-          k.core.v1.container.new('read-hello', 'ubuntu')
-          + k.core.v1.container.withCommand('cat')
-          + k.core.v1.container.withArgs('/workspace/' + ws_name + '/world'),
-        ])
-        + tekton.core.v1beta1.task.withWorkspace(ws_name),
-
-      sleep_task:
-        tekton.core.v1beta1.task.new('sleep-helloparams.ARGS', [
-          k.core.v1.container.new('sleep-hello', 'ubuntu')
-          + k.core.v1.container.withCommand('sleep')
-          + k.core.v1.container.withArgs('300'),
-        ])
-        + tekton.core.v1beta1.task.withWorkspace(ws_name),
-
-      write_pod_name_task:
-        tekton.core.v1beta1.task.new('write-pod-name-hello', [
-          k.core.v1.container.new('write-pod-name-hello-container', 'ubuntu')
-          + k.core.v1.container.withEnv([
-            k.core.v1.envVar.fromFieldPath('POD_NAME', 'metadata.name'),
-          ])
-          + k.core.v1.container.withCommand('echo')
-          + k.core.v1.container.withArgs([
-            'Hello $(POD_NAME)!',
-          ]),
-        ]),
-
-      pipeline:
-        tekton.core.v1beta1.pipeline.new('hello-pod-name-pipeline')
-        + tekton.core.v1beta1.pipeline.withWorkspace(ws_name)
-        + tekton.core.v1beta1.pipeline.withTask(self.write_pod_name_task)
-        + tekton.core.v1beta1.pipeline.withTask(self.sleep_task)
-        + tekton.core.v1beta1.pipeline.withTask(self.write_task)
-        + tekton.core.v1beta1.pipeline.withTask(self.read_task, self.write_task),
-
-      pipelineRun::
-        tekton.core.v1beta1.pipelineRun.new(self.pipeline)
-        + tekton.core.v1beta1.pipelineRun.withWorkspaceStorage(
-          storageClass='fast-dont-retain',
-          size='1Gi',
-        ),
-
-      triggerTemplate:
-        tekton.triggers.v1beta1.triggerTemplate.new('hello-pod-name-trigger', self.pipelineRun),
-
-      trigger:
-        tekton.triggers.v1beta1.trigger.new('trigger-1', self.triggerTemplate),
+      tasks: {
+        git_clone: tekton.tasks.task_git_clone,
+        kubeval: tekton.tasks.task_kubeval,
+        jb_install: tkn_tasks.jsonnet_bundler,
+        tanka_export: tkn_tasks.tanka_export,
+      },
     }),
 }

@@ -52,6 +52,14 @@ local k = import 'k.libsonnet';
           metadata: { name: name },
           spec: { tasks: tasks },
         },
+        withResource(name, type): {
+          spec+: {
+            resource+: [{
+              name: name,
+              type: type,
+            }],
+          },
+        },
         withWorkspace(name): {
           spec+: {
             workspaces+: [{
@@ -153,6 +161,7 @@ local k = import 'k.libsonnet';
           },
         },
       },
+
       trigger: {
         new(name, template): {
           apiVersion: 'triggers.tekton.dev/v1beta1',

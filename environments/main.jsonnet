@@ -15,6 +15,9 @@ local tk = import 'tanka-util/main.libsonnet';
     + tk.environment.withInjectLabels()
     + tk.environment.withData({
       tekton: tekton.installation {
+        // namespace will get created by cluster-resources
+        namespace_tekton_pipelines+:: {},
+
         config_map_config_artifact_pvc+: {
           data: {
             size: '10Gi',

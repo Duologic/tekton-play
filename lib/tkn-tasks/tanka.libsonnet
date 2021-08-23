@@ -32,7 +32,7 @@ local tekton = import 'tekton/main.libsonnet';
       description: 'Directory containing a `jsonnetfile.json`.',
     }]),
 
-  tanka_cli:
+  cli:
     tekton.core.v1beta1.task.new('tk', [
       k.core.v1.container.new('tanka', '$(params.image)')
       + k.core.v1.container.withArgs(['$(params.args)'])
@@ -54,11 +54,10 @@ local tekton = import 'tekton/main.libsonnet';
     ])
     + tekton.core.v1beta1.task.withWorkspaces([{
       name: 'tk_root',
-      optional: true,
       description: 'Tanka project root.',
     }]),
 
-  tanka_export:
+  export:
     tekton.core.v1beta1.task.new('tk-export', [
       k.core.v1.container.new('tanka', '$(params.image)')
       + k.core.v1.container.withArgs([
@@ -69,6 +68,7 @@ local tekton = import 'tekton/main.libsonnet';
         '--format=$(params.format)',
         '--recursive',
         '--merge',
+        '$(params.extra_args)',
       ])
       + k.core.v1.container.withWorkingDir('$(workspaces.tk_root.path)'),
     ])
@@ -78,6 +78,12 @@ local tekton = import 'tekton/main.libsonnet';
         type: 'string',
         description: 'Docker image used for the task.',
         default: this.tanka_image,
+      },
+      {
+        name: 'extra_args',
+        type: 'array',
+        description: 'Add more args.',
+        default: [],
       },
       {
         name: 'parallel',
@@ -102,26 +108,4 @@ local tekton = import 'tekton/main.libsonnet';
         description: 'Export output directory.',
       },
     ]),
-
-  sleep:
-    tekton.core.v1beta1.task.new('sleep', [
-      k.core.v1.container.new('sleep', 'alpine:3.14')
-      + k.core.v1.container.withCommand('sleep')
-      + k.core.v1.container.withArgs(['$(params.TIME_SECONDS)']),
-    ])
-    + tekton.core.v1beta1.task.withDescription(
-      'Task that sleeps for TIME_SECONDS to inspect the workspace.'
-    )
-    + tekton.core.v1beta1.task.withParams([{
-      name: 'TIME_SECONDS',
-      type: 'array',
-      description: 'sleep for a while',
-      default: ['600'],
-    }])
-    + tekton.core.v1beta1.task.withWorkspaces([{
-      name: 'ws',
-      optional: true,
-      description: 'Gain access to a workspace.',
-    }]),
-
 }

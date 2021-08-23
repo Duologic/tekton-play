@@ -2,7 +2,7 @@ local kubeconfig = import 'kubeconfig.libsonnet';
 local server = kubeconfig[0].clusters[0].cluster.server;
 
 local tekton = import 'tekton/main.libsonnet';
-local tkn_tasks = import 'tkn-tasks/tanka.libsonnet';
+local tkn_tasks = import 'tkn-tasks/main.libsonnet';
 
 local storageclasses = import 'storageclass/classes.libsonnet';
 
@@ -17,6 +17,29 @@ local tk = import 'tanka-util/main.libsonnet';
       tekton: tekton.installation {
         // namespace will get created by cluster-resources
         namespace_tekton_pipelines+:: {},
+
+        // allow running tasks in the same pipeline but on different nodes
+        config_map_feature_flags+: {
+          data+: {
+            'disable-affinity-assistant': 'true',
+          },
+        },
+
+        // beef-up the controller for better performance
+        deployment_tekton_pipelines_controller+:
+          k.apps.v1.deployment.mapContainersWithName(
+            ['tekton-pipelines-controller'],
+            function(c)
+              c
+              + k.core.v1.container.withArgsMixin([
+                '-kube-api-qps=50',
+                '-kube-api-burst=50',
+                '-threads-per-controller=15',
+              ])
+              + k.core.v1.container.resources.withRequestsMixin({
+                cpu: 15,
+              })
+          ),
 
         config_map_config_artifact_pvc+: {
           data: {
@@ -105,8 +128,8 @@ local tk = import 'tanka-util/main.libsonnet';
       tasks: {
         git_clone: tekton.tasks.task_git_clone,
         kubeval: tekton.tasks.task_kubeval,
-        jb_install: tkn_tasks.jsonnet_bundler,
-        tanka_export: tkn_tasks.tanka_export,
+        jb_install: tkn_tasks.tanka.jsonnet_bundler,
+        tanka_export: tkn_tasks.tanka.export,
       },
     }),
 }
